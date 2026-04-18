@@ -22,7 +22,7 @@ mint install jessetipton/smart-dock-sort
 > **Note:** Mint must build with the Xcode SDK for FoundationModels macros to resolve. If the install fails, set the SDK before running:
 > ```sh
 > export SDKROOT=$(xcrun --sdk macosx --show-sdk-path)
-> mint install tiptonj/smart-dock-sort
+> mint install jessetipton/smart-dock-sort
 > ```
 
 ## Usage
