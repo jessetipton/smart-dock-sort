@@ -2,6 +2,7 @@ import Foundation
 
 struct DockApp {
     let label: String
+    let category: String?
     let entry: [String: Any]
 }
 
@@ -16,10 +17,25 @@ enum DockReader {
             guard let tileData = entry["tile-data"] as? [String: Any],
                   let label = tileData["file-label"] as? String
             else { return nil }
-            return DockApp(label: label, entry: entry)
+            let category = Self.readCategory(from: tileData)
+            return DockApp(label: label, category: category, entry: entry)
         }
         guard !result.isEmpty else { throw DockError.emptyDock }
         return result
+    }
+
+    private static func readCategory(from tileData: [String: Any]) -> String? {
+        guard let fileData = tileData["file-data"] as? [String: Any],
+              let urlString = fileData["_CFURLString"] as? String,
+              let url = URL(string: urlString)
+        else { return nil }
+        let plistURL = url.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plistURL),
+              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let category = plist["LSApplicationCategoryType"] as? String
+        else { return nil }
+        // "public.app-category.developer-tools" → "developer-tools"
+        return category.replacingOccurrences(of: "public.app-category.", with: "")
     }
 
     static func applyOrder(_ apps: [DockApp]) throws {

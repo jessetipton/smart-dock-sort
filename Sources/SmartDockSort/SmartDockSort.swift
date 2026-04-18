@@ -13,6 +13,12 @@ struct SmartDockSort: AsyncParsableCommand {
     )
     var instruction: String = "Group apps by category (e.g., productivity, creative, communication, utilities, system), then alphabetically within each group."
 
+    @Flag(
+        name: [.customShort("d"), .long],
+        help: "Print detailed debug info when the model returns a mismatched app list."
+    )
+    var debug = false
+
     mutating func run() async throws {
         let apps = try DockReader.readApps()
 
@@ -24,12 +30,13 @@ struct SmartDockSort: AsyncParsableCommand {
         print("Sorting \(apps.count) apps...")
         let currentNames = apps.map(\.label)
         let result = try await DockSorter.sort(
-            appNames: currentNames,
-            instruction: instruction
+            apps: apps,
+            instruction: instruction,
+            debug: debug
         )
 
         if result.names == currentNames {
-            print("\n✨ \(result.summary)")
+            print("\nYour Dock is already sorted this way. Nothing to change.")
             return
         }
 

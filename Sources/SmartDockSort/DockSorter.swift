@@ -3,51 +3,102 @@ import FoundationModels
 struct SortResult {
     let names: [String]
     let summary: String
+    var failed = false
 }
 
 @Generable
-struct SortedApps {
-    @Guide(description: "The app names reordered according to the sorting instruction. Must contain exactly the same names as the input, no additions or removals.")
-    var names: [String]
+struct CategorizedApp {
+    @Guide(description: "The app name, exactly as provided in the input.")
+    var name: String
 
-    @Guide(description: "A brief, friendly summary explaining the reasoning behind the proposed order.")
-    var summary: String
+    @Guide(description: "A short category label for this app, e.g. 'browser', 'developer-tools', 'productivity', 'creative', 'communication', 'entertainment', 'utilities', 'system'.")
+    var category: String
+}
+
+@Generable
+struct CategorizedApps {
+    @Guide(description: "One entry per app from the input, in the same order as the input. Each entry has the app name and an assigned category.")
+    var apps: [CategorizedApp]
 }
 
 enum DockSorter {
-    static func sort(appNames: [String], instruction: String) async throws -> SortResult {
+    static func sort(apps: [DockApp], instruction: String, debug: Bool = false) async throws -> SortResult {
         guard case .available = SystemLanguageModel.default.availability else {
             throw SorterError.modelUnavailable
         }
 
+        let appNames = apps.map(\.label)
+
         let session = LanguageModelSession {
             """
-            You reorder a list of macOS app names. Return exactly the same names, \
-            no additions or removals. Only change the order. Include a brief summary \
-            explaining your reasoning. If the current order is already optimal, \
-            return it unchanged and write a cheeky, complimentary summary praising \
-            the user's impeccable taste in Dock organization.
+            You categorize macOS apps. Given a list of app names (some with their \
+            Mac App Store category), assign each app a short category label. \
+            Return one entry per app in the same order as the input. \
+            Use the app name exactly as given — do not rename or modify it.
             """
         }
+
+        let appList = apps.map { app in
+            if let category = app.category {
+                return "- \(app.label) [\(category)]"
+            }
+            return "- \(app.label)"
+        }.joined(separator: "\n")
 
         let prompt = """
-            Apps: \(appNames.joined(separator: ", "))
+            Categorize each of these \(apps.count) apps. Return exactly \
+            \(apps.count) entries, one per app, in the same order.
             
-            Sorting instruction: \(instruction)
+            \(appList)
             """
 
-        let response = try await session.respond(to: prompt, generating: SortedApps.self)
-        let sorted = response.content
+        let response = try await session.respond(to: prompt, generating: CategorizedApps.self)
+        let categorized = response.content.apps
 
-        // Validate: must contain exactly the same set of names
-        let inputSet = Set(appNames)
-        let outputSet = Set(sorted.names)
-        guard inputSet == outputSet, sorted.names.count == appNames.count else {
-            print("Warning: model returned mismatched app list, using original order.")
-            return SortResult(names: appNames, summary: "Could not generate a new ordering.")
+        if debug {
+            print("  Model categorized:")
+            for app in categorized {
+                print("    \(app.name): \(app.category)")
+            }
         }
 
-        return SortResult(names: sorted.names, summary: sorted.summary)
+        // Build a lookup from the model's categories, matching by position if
+        // the count matches, otherwise falling back to name matching.
+        var categoryFor: [String: String] = [:]
+        if categorized.count == appNames.count {
+            for (i, name) in appNames.enumerated() {
+                categoryFor[name] = categorized[i].category.lowercased()
+            }
+        } else {
+            for entry in categorized {
+                if appNames.contains(entry.name) {
+                    categoryFor[entry.name] = entry.category.lowercased()
+                }
+            }
+        }
+
+        // Sort: group by category, alphabetically within each group.
+        // Categories themselves are sorted alphabetically.
+        let sorted = appNames.sorted { a, b in
+            let catA = categoryFor[a] ?? "zzz"
+            let catB = categoryFor[b] ?? "zzz"
+            if catA != catB { return catA < catB }
+            return a.localizedCaseInsensitiveCompare(b) == .orderedAscending
+        }
+
+        // Build a summary of the grouping
+        var groups: [(String, [String])] = []
+        var seen: Set<String> = []
+        for name in sorted {
+            let cat = categoryFor[name] ?? "other"
+            if !seen.contains(cat) {
+                seen.insert(cat)
+                groups.append((cat, sorted.filter { (categoryFor[$0] ?? "other") == cat }))
+            }
+        }
+        let summary = groups.map { "\($0.0): \($0.1.joined(separator: ", "))" }.joined(separator: " | ")
+
+        return SortResult(names: sorted, summary: summary)
     }
 }
 
