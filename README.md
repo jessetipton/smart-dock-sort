@@ -1,6 +1,6 @@
 # smart-dock-sort 
 
-A macOS command-line tool that uses Apple Intelligence to organize your Dock. It reads your current Dock layout, asks the on-device language model to suggest a logical ordering, shows you the result, and applies it if you approve.
+A macOS command-line tool that uses Apple Intelligence to organize your Dock. It reads your current Dock layout, uses the on-device language model to categorize your apps, sorts them by category and then alphabetically, and applies the new order if you approve.
 
 Everything runs locally. No API keys. No data leaves your Mac.
 
@@ -33,20 +33,36 @@ smart-dock-sort
 
 # Provide a custom sorting instruction
 smart-dock-sort --instruction "put browsers first, then creative apps, then everything else"
+
+# Show debug output (model's category assignments)
+smart-dock-sort --debug
 ```
 
 The tool will:
-1. Read your current Dock apps
-2. Ask the on-device model to suggest an order
-3. Show you a numbered preview
-4. Prompt you to apply (`y`) or cancel (`n`)
+1. Read your current Dock apps and their bundle metadata
+2. Ask the on-device model to categorize each app
+3. Sort apps by category, then alphabetically within each category
+4. Show you a numbered preview
+5. Prompt you to apply (`y`) or cancel (`n`)
 
 If you approve, the Dock restarts instantly with the new layout. If you cancel, nothing changes.
 
 ## How It Works
 
-Your Dock configuration lives in `~/Library/Preferences/com.apple.dock.plist`. The tool reads the `persistent-apps` array (the app icons on the left side of the Dock), extracts the app names, and sends them to Apple's on-device Foundation Models framework with your sorting instruction.
+Your Dock configuration lives in `~/Library/Preferences/com.apple.dock.plist`. The tool reads the `persistent-apps` array (the app icons on the left side of the Dock) and extracts each app's name and `LSApplicationCategoryType` from its bundle's `Info.plist`.
 
-The model returns a reordered list as structured output. The tool validates that the model returned exactly the same set of apps (no additions or removals), then rewrites the plist and restarts the Dock.
+The app names and any existing categories are sent to Apple's on-device Foundation Models framework. The model assigns a category label to each app. Sorting is then done deterministically in Swift — apps are grouped by category and sorted alphabetically within each group. The tool rewrites the plist and restarts the Dock.
 
 Finder is not affected — it's hardcoded by macOS and doesn't appear in `persistent-apps`. Folders and files on the right side of the Dock (`persistent-others`) are also left untouched.
+
+## Limitations
+
+Apple's on-device model (~3B parameters) produces acceptable but often subpar results. You may notice:
+
+- Apps categorized differently across runs
+- Unusual or overly broad category labels
+- Apps without an `LSApplicationCategoryType` in their bundle may be categorized less accurately
+
+Earlier versions of this tool asked the model to reorder apps directly, but the on-device model struggled to reliably produce a valid permutation of the input list. The current approach — having the model only categorize apps while Swift handles the sorting — is significantly more reliable, though still imperfect.
+
+The `--debug` (`-d`) flag shows exactly how the model categorized each app, which is useful for understanding unexpected results. Running the tool again may produce a different grouping.
